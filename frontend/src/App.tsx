@@ -25,6 +25,15 @@ type SyncResult = {
   total_stored_count: number
 }
 
+type DuplicateResult = {
+  is_duplicate: boolean
+  duplicate_type: 'exact_title' | 'similar_title' | 'similar_topic' | 'none'
+  similarity_score: number
+  matched_video_id: string | null
+  matched_title: string | null
+  reason: string
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const numberFormatter = new Intl.NumberFormat()
 
@@ -43,6 +52,9 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [videos, setVideos] = useState<Video[]>([])
   const [syncing, setSyncing] = useState(false)
+  const [proposedTitle, setProposedTitle] = useState('')
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false)
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateResult | null>(null)
 
   const loadChannel = async () => {
     setLoading(true)
@@ -89,6 +101,29 @@ function App() {
     }
   }
 
+  const checkDuplicate = async () => {
+    if (!proposedTitle.trim()) {
+      setDuplicateResult(null)
+      setMessage('Enter a proposed title or topic first.')
+      return
+    }
+    setCheckingDuplicate(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/videos/check-duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: proposedTitle }),
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail ?? 'Could not check for duplicates.')
+      setDuplicateResult(body)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not check for duplicates.')
+    } finally {
+      setCheckingDuplicate(false)
+    }
+  }
+
   useEffect(() => {
     const oauthResult = new URLSearchParams(window.location.search).get('youtube')
     if (oauthResult) window.history.replaceState({}, '', window.location.pathname)
@@ -121,6 +156,39 @@ function App() {
               {syncing ? 'Syncing Videos…' : 'Sync Videos'}
             </button>
           </div>
+        )}
+
+        {channel && (
+          <section className="duplicate-section" aria-labelledby="duplicate-heading">
+            <h2 id="duplicate-heading">Duplicate check</h2>
+            <p className="muted">Check a proposed video title or topic against your locally synced videos.</p>
+            <div className="duplicate-form">
+              <label htmlFor="proposed-title">Proposed title or topic</label>
+              <input
+                id="proposed-title"
+                value={proposedTitle}
+                onChange={(event) => setProposedTitle(event.target.value)}
+                placeholder="e.g. BFS vs DFS explained"
+              />
+              <button className="connect-button" type="button" onClick={checkDuplicate} disabled={checkingDuplicate}>
+                {checkingDuplicate ? 'Checking…' : 'Check Duplicate'}
+              </button>
+            </div>
+            {duplicateResult && (
+              <div className={`duplicate-result ${duplicateResult.is_duplicate ? 'duplicate-found' : 'duplicate-safe'}`}>
+                <strong>
+                  {duplicateResult.duplicate_type === 'exact_title' && 'Exact duplicate'}
+                  {duplicateResult.duplicate_type === 'similar_title' && 'Similar title'}
+                  {duplicateResult.duplicate_type === 'similar_topic' && 'Similar topic'}
+                  {duplicateResult.duplicate_type === 'none' && 'Safe / New'}
+                </strong>
+                <p>{duplicateResult.reason}</p>
+                {duplicateResult.is_duplicate && (
+                  <p>Matched: <em>{duplicateResult.matched_title}</em> · {Math.round(duplicateResult.similarity_score * 100)}% similar</p>
+                )}
+              </div>
+            )}
+          </section>
         )}
 
         {channel && (

@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
 from youtube_oauth import (
     OAuthConfigurationError,
@@ -22,6 +23,7 @@ from youtube_oauth import (
     save_authorization_token,
 )
 from videos_db import initialize_database, list_videos, upsert_videos, video_count
+from duplicate_detection import check_duplicate
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parent
 CLIENT_SECRETS_FILE = BACKEND_DIRECTORY / "client_secret.json"
@@ -61,6 +63,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 initialize_database(DATABASE_FILE)
+
+
+class DuplicateCheckRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    topic: str = Field(default="", max_length=1_000)
 
 @app.get("/")
 def root():
@@ -181,3 +188,9 @@ def sync_youtube_videos():
 def stored_youtube_videos():
     """List locally cached channel videos without calling YouTube again."""
     return {"videos": list_videos(DATABASE_FILE)}
+
+
+@app.post("/api/videos/check-duplicate")
+def check_video_duplicate(proposal: DuplicateCheckRequest):
+    """Compare a proposed title/topic with locally synced video metadata."""
+    return check_duplicate(proposal.title, proposal.topic, list_videos(DATABASE_FILE))
