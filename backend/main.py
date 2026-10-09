@@ -15,16 +15,20 @@ from youtube_oauth import (
     OAuthConfigurationError,
     OAuthTokenExchangeError,
     YouTubeAuthenticationError,
+    YouTubeSyncError,
     get_authorization_url,
     get_channel_details,
+    get_uploaded_videos,
     save_authorization_token,
 )
+from videos_db import initialize_database, list_videos, upsert_videos, video_count
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parent
 CLIENT_SECRETS_FILE = BACKEND_DIRECTORY / "client_secret.json"
 TOKEN_FILE = BACKEND_DIRECTORY / "youtube_token.json"
 SESSION_SECRET_FILE = BACKEND_DIRECTORY / ".oauth_session_secret"
 OAUTH_STATE_FILE = BACKEND_DIRECTORY / ".oauth_state.json"
+DATABASE_FILE = BACKEND_DIRECTORY / "shortsflow.db"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 OAUTH_REDIRECT_URI = os.getenv(
     "GOOGLE_OAUTH_REDIRECT_URI",
@@ -53,9 +57,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL],
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+initialize_database(DATABASE_FILE)
 
 @app.get("/")
 def root():
@@ -150,3 +155,29 @@ def youtube_channel():
         raise HTTPException(status_code=503, detail=str(error)) from error
     except YouTubeAuthenticationError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
+
+
+@app.post("/api/youtube/videos/sync")
+def sync_youtube_videos():
+    """Fetch all channel uploads and upsert them into the local video cache."""
+    try:
+        videos = get_uploaded_videos(CLIENT_SECRETS_FILE, TOKEN_FILE)
+        inserted_count, updated_count = upsert_videos(DATABASE_FILE, videos)
+        return {
+            "fetched_count": len(videos),
+            "inserted_count": inserted_count,
+            "updated_count": updated_count,
+            "total_stored_count": video_count(DATABASE_FILE),
+        }
+    except OAuthConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except YouTubeAuthenticationError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    except YouTubeSyncError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/youtube/videos")
+def stored_youtube_videos():
+    """List locally cached channel videos without calling YouTube again."""
+    return {"videos": list_videos(DATABASE_FILE)}

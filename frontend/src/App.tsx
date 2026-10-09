@@ -10,6 +10,21 @@ type Channel = {
   view_count: number
 }
 
+type Video = {
+  youtube_video_id: string
+  title: string
+  description: string
+  published_at: string
+  thumbnail_url: string
+}
+
+type SyncResult = {
+  fetched_count: number
+  inserted_count: number
+  updated_count: number
+  total_stored_count: number
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const numberFormatter = new Intl.NumberFormat()
 
@@ -26,6 +41,8 @@ function App() {
     return ''
   })
   const [loading, setLoading] = useState(true)
+  const [videos, setVideos] = useState<Video[]>([])
+  const [syncing, setSyncing] = useState(false)
 
   const loadChannel = async () => {
     setLoading(true)
@@ -45,10 +62,37 @@ function App() {
     }
   }
 
+  const loadVideos = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/youtube/videos`)
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail ?? 'Could not load stored videos.')
+      setVideos(body.videos)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load stored videos.')
+    }
+  }
+
+  const syncVideos = async () => {
+    setSyncing(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/youtube/videos/sync`, { method: 'POST' })
+      const body: SyncResult | { detail?: string } = await response.json()
+      if (!response.ok) throw new Error('detail' in body ? body.detail : 'Could not sync videos.')
+      const result = body as SyncResult
+      setMessage(`Synced ${result.fetched_count} videos: ${result.inserted_count} added, ${result.updated_count} updated. ${result.total_stored_count} stored locally.`)
+      await loadVideos()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not sync videos.')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   useEffect(() => {
     const oauthResult = new URLSearchParams(window.location.search).get('youtube')
     if (oauthResult) window.history.replaceState({}, '', window.location.pathname)
-    const loadTimer = window.setTimeout(() => { void loadChannel() }, 0)
+    const loadTimer = window.setTimeout(() => { void Promise.all([loadChannel(), loadVideos()]) }, 0)
     return () => window.clearTimeout(loadTimer)
   }, [])
 
@@ -73,7 +117,31 @@ function App() {
               <div><dt>Videos</dt><dd>{numberFormatter.format(channel.video_count)}</dd></div>
               <div><dt>Views</dt><dd>{numberFormatter.format(channel.view_count)}</dd></div>
             </dl>
+            <button className="connect-button sync-button" type="button" onClick={syncVideos} disabled={syncing}>
+              {syncing ? 'Syncing Videos…' : 'Sync Videos'}
+            </button>
           </div>
+        )}
+
+        {channel && (
+          <section className="video-section" aria-labelledby="videos-heading">
+            <div className="video-section-heading">
+              <h2 id="videos-heading">Stored videos</h2>
+              <span>{videos.length} local</span>
+            </div>
+            {videos.length === 0 ? (
+              <p className="muted">Sync your channel to save its uploaded videos locally.</p>
+            ) : (
+              <div className="video-list">
+                {videos.map((video) => (
+                  <article className="video-row" key={video.youtube_video_id}>
+                    {video.thumbnail_url && <img src={video.thumbnail_url} alt="" />}
+                    <div><h3>{video.title}</h3><p>{new Date(video.published_at).toLocaleDateString()}</p></div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </section>
     </main>

@@ -35,6 +35,10 @@ class OAuthTokenExchangeError(YouTubeAuthenticationError):
         super().__init__(f"Google token exchange failed: {error_code}.")
 
 
+class YouTubeSyncError(Exception):
+    """The connected channel's uploads could not be fetched."""
+
+
 def _require_client_secrets(client_secrets_file: Path) -> None:
     if not client_secrets_file.is_file():
         raise OAuthConfigurationError("Google OAuth credentials are not configured. Add backend/client_secret.json locally.")
@@ -133,3 +137,61 @@ def get_channel_details(client_secrets_file: Path, token_file: Path) -> dict[str
         "subscriber_count": int(statistics.get("subscriberCount", 0)), "video_count": int(statistics.get("videoCount", 0)),
         "view_count": int(statistics.get("viewCount", 0)),
     }
+
+
+def get_uploaded_videos(client_secrets_file: Path, token_file: Path) -> list[dict[str, str]]:
+    """Fetch every item in the authenticated channel's uploads playlist."""
+    credentials = _load_credentials(client_secrets_file, token_file)
+    try:
+        youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
+        channel_response = youtube.channels().list(part="contentDetails", mine=True).execute()
+        channels = channel_response.get("items", [])
+        if not channels:
+            raise YouTubeSyncError("No YouTube channel was found for this Google account.")
+        uploads_playlist_id = channels[0].get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
+        if not uploads_playlist_id:
+            raise YouTubeSyncError("The connected channel does not have an uploads playlist.")
+
+        videos: list[dict[str, str]] = []
+        page_token: str | None = None
+        while True:
+            page = youtube.playlistItems().list(
+                part="snippet,contentDetails",
+                playlistId=uploads_playlist_id,
+                maxResults=50,
+                pageToken=page_token,
+            ).execute()
+            for item in page.get("items", []):
+                snippet = item.get("snippet", {})
+                content_details = item.get("contentDetails", {})
+                video_id = content_details.get("videoId") or snippet.get("resourceId", {}).get("videoId")
+                if not video_id:
+                    continue
+                thumbnails = snippet.get("thumbnails", {})
+                thumbnail_url = next(
+                    (
+                        thumbnails[size]["url"]
+                        for size in ("maxres", "standard", "high", "medium", "default")
+                        if thumbnails.get(size, {}).get("url")
+                    ),
+                    "",
+                )
+                videos.append(
+                    {
+                        "youtube_video_id": video_id,
+                        "title": snippet.get("title", "Untitled video"),
+                        "description": snippet.get("description", ""),
+                        "published_at": content_details.get("videoPublishedAt") or snippet.get("publishedAt", ""),
+                        "thumbnail_url": thumbnail_url,
+                    }
+                )
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        return videos
+    except YouTubeAuthenticationError:
+        raise
+    except HttpError as error:
+        if error.resp.status in {401, 403}:
+            raise YouTubeAuthenticationError("YouTube authorization was rejected. Please reconnect.") from error
+        raise YouTubeSyncError("YouTube uploads could not be fetched.") from error

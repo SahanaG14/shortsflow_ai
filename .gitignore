@@ -24,3 +24,4 @@ backend/client_secret.json
 backend/youtube_token.json
 backend/.oauth_session_secret
 backend/.oauth_state.json
+backend/shortsflow.db
