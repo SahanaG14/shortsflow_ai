@@ -18,3 +18,9 @@ frontend/.env
 # OS files
 .DS_Store
 Thumbs.db
+
+# Google OAuth credentials
+backend/client_secret.json
+backend/youtube_token.json
+backend/.oauth_session_secret
+backend/.oauth_state.json

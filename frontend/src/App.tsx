@@ -1,121 +1,82 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useEffect, useState } from 'react'
 import './App.css'
 
+type Channel = {
+  channel_id: string
+  title: string
+  description: string
+  subscriber_count: number
+  video_count: number
+  view_count: number
+}
+
+const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const numberFormatter = new Intl.NumberFormat()
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [channel, setChannel] = useState<Channel | null>(null)
+  const [message, setMessage] = useState(() => {
+    const result = new URLSearchParams(window.location.search).get('youtube')
+    if (result === 'connected') return 'Your YouTube channel is connected.'
+    if (result === 'denied') return 'Google authorization was cancelled.'
+    if (result === 'exchange_failed') {
+      return `Google token exchange failed: ${new URLSearchParams(window.location.search).get('reason') ?? 'unknown error'}.`
+    }
+    if (result === 'failed') return 'Google authorization could not be completed.'
+    return ''
+  })
+  const [loading, setLoading] = useState(true)
+
+  const loadChannel = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/youtube/channel`)
+      if (response.status === 401) {
+        setChannel(null)
+        return
+      }
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail ?? 'Could not load channel details.')
+      setChannel(body)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load channel details.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const oauthResult = new URLSearchParams(window.location.search).get('youtube')
+    if (oauthResult) window.history.replaceState({}, '', window.location.pathname)
+    const loadTimer = window.setTimeout(() => { void loadChannel() }, 0)
+    return () => window.clearTimeout(loadTimer)
+  }, [])
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+    <main className="app-shell">
+      <section className="card" aria-labelledby="page-title">
+        <p className="eyebrow">ShortsFlow AI</p>
+        <h1 id="page-title">YouTube channel</h1>
+        <p className="intro">Connect a Google account to view your channel’s current performance.</p>
+        {message && <p className="message" role="status">{message}</p>}
+        {!channel && !loading && <button className="connect-button" type="button" onClick={() => window.location.assign(`${apiBaseUrl}/api/youtube/connect`)}>Connect YouTube Channel</button>}
+        {loading && <p className="muted">Checking your connection…</p>}
+        {channel && (
+          <div className="channel-details">
+            <div className="channel-heading">
+              <div><p className="connected-label">Connected channel</p><h2>{channel.title}</h2></div>
+              <button className="secondary-button" type="button" onClick={() => window.location.assign(`${apiBaseUrl}/api/youtube/connect`)}>Reconnect</button>
+            </div>
+            {channel.description && <p className="description">{channel.description}</p>}
+            <dl className="stats">
+              <div><dt>Subscribers</dt><dd>{numberFormatter.format(channel.subscriber_count)}</dd></div>
+              <div><dt>Videos</dt><dd>{numberFormatter.format(channel.video_count)}</dd></div>
+              <div><dt>Views</dt><dd>{numberFormatter.format(channel.view_count)}</dd></div>
+            </dl>
+          </div>
+        )}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
