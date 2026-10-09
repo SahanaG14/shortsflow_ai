@@ -1,84 +1,51 @@
-"""Local SQLite storage for the connected channel's uploaded videos."""
+"""PostgreSQL storage operations for the connected channel's uploaded videos."""
 
-import sqlite3
-from pathlib import Path
+from sqlalchemy import func, select
 
-
-def initialize_database(database_file: Path) -> None:
-    with sqlite3.connect(database_file) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                youtube_video_id TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                published_at TEXT NOT NULL,
-                thumbnail_url TEXT NOT NULL DEFAULT '',
-                synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
+from database import Video, session_scope
 
 
-def upsert_videos(database_file: Path, videos: list[dict[str, str]]) -> tuple[int, int]:
+def upsert_videos(videos: list[dict[str, str]]) -> tuple[int, int]:
     """Insert new videos and refresh metadata for already-stored videos."""
     inserted = 0
     updated = 0
-    with sqlite3.connect(database_file) as connection:
+    with session_scope() as session:
         for video in videos:
-            existing = connection.execute(
-                "SELECT 1 FROM videos WHERE youtube_video_id = ?",
-                (video["youtube_video_id"],),
-            ).fetchone()
+            existing = session.scalar(
+                select(Video).where(Video.youtube_video_id == video["youtube_video_id"])
+            )
             if existing:
-                connection.execute(
-                    """
-                    UPDATE videos
-                    SET title = ?, description = ?, published_at = ?, thumbnail_url = ?,
-                        synced_at = CURRENT_TIMESTAMP
-                    WHERE youtube_video_id = ?
-                    """,
-                    (
-                        video["title"],
-                        video["description"],
-                        video["published_at"],
-                        video["thumbnail_url"],
-                        video["youtube_video_id"],
-                    ),
-                )
+                existing.title = video["title"]
+                existing.description = video["description"]
+                existing.published_at = video["published_at"]
+                existing.thumbnail_url = video["thumbnail_url"]
                 updated += 1
             else:
-                connection.execute(
-                    """
-                    INSERT INTO videos (youtube_video_id, title, description, published_at, thumbnail_url)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        video["youtube_video_id"],
-                        video["title"],
-                        video["description"],
-                        video["published_at"],
-                        video["thumbnail_url"],
-                    ),
-                )
+                session.add(Video(**video))
+                # Make newly inserted IDs visible to later entries in this same
+                # YouTube playlist response, which can contain repeated videos.
+                session.flush()
                 inserted += 1
     return inserted, updated
 
 
-def list_videos(database_file: Path) -> list[dict[str, str]]:
-    with sqlite3.connect(database_file) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(
-            """
-            SELECT youtube_video_id, title, description, published_at, thumbnail_url
-            FROM videos
-            ORDER BY published_at DESC, id DESC
-            """
-        ).fetchall()
-    return [dict(row) for row in rows]
+def list_videos() -> list[dict[str, str]]:
+    with session_scope() as session:
+        videos = session.scalars(
+            select(Video).order_by(Video.published_at.desc(), Video.id.desc())
+        ).all()
+        return [
+            {
+                "youtube_video_id": video.youtube_video_id,
+                "title": video.title,
+                "description": video.description,
+                "published_at": video.published_at,
+                "thumbnail_url": video.thumbnail_url,
+            }
+            for video in videos
+        ]
 
 
-def video_count(database_file: Path) -> int:
-    with sqlite3.connect(database_file) as connection:
-        return int(connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0])
+def video_count() -> int:
+    with session_scope() as session:
+        return int(session.scalar(select(func.count()).select_from(Video)) or 0)

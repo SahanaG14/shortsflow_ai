@@ -22,15 +22,21 @@ from youtube_oauth import (
     get_uploaded_videos,
     save_authorization_token,
 )
-from videos_db import initialize_database, list_videos, upsert_videos, video_count
+from database import initialize_database
+from videos_db import list_videos, upsert_videos, video_count
 from duplicate_detection import check_duplicate
+from chat_preferences import (
+    get_chat_history,
+    get_preferences,
+    reset_chat_preferences,
+    send_chat_message,
+)
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parent
 CLIENT_SECRETS_FILE = BACKEND_DIRECTORY / "client_secret.json"
 TOKEN_FILE = BACKEND_DIRECTORY / "youtube_token.json"
 SESSION_SECRET_FILE = BACKEND_DIRECTORY / ".oauth_session_secret"
 OAUTH_STATE_FILE = BACKEND_DIRECTORY / ".oauth_state.json"
-DATABASE_FILE = BACKEND_DIRECTORY / "shortsflow.db"
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 OAUTH_REDIRECT_URI = os.getenv(
     "GOOGLE_OAUTH_REDIRECT_URI",
@@ -62,12 +68,21 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
-initialize_database(DATABASE_FILE)
+
+
+@app.on_event("startup")
+def initialize_postgres_storage() -> None:
+    """Create PostgreSQL tables before serving APIs that rely on persisted data."""
+    initialize_database()
 
 
 class DuplicateCheckRequest(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     topic: str = Field(default="", max_length=1_000)
+
+
+class ChatMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2_000)
 
 @app.get("/")
 def root():
@@ -169,12 +184,12 @@ def sync_youtube_videos():
     """Fetch all channel uploads and upsert them into the local video cache."""
     try:
         videos = get_uploaded_videos(CLIENT_SECRETS_FILE, TOKEN_FILE)
-        inserted_count, updated_count = upsert_videos(DATABASE_FILE, videos)
+        inserted_count, updated_count = upsert_videos(videos)
         return {
             "fetched_count": len(videos),
             "inserted_count": inserted_count,
             "updated_count": updated_count,
-            "total_stored_count": video_count(DATABASE_FILE),
+            "total_stored_count": video_count(),
         }
     except OAuthConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -187,10 +202,35 @@ def sync_youtube_videos():
 @app.get("/api/youtube/videos")
 def stored_youtube_videos():
     """List locally cached channel videos without calling YouTube again."""
-    return {"videos": list_videos(DATABASE_FILE)}
+    return {"videos": list_videos()}
 
 
 @app.post("/api/videos/check-duplicate")
 def check_video_duplicate(proposal: DuplicateCheckRequest):
     """Compare a proposed title/topic with locally synced video metadata."""
-    return check_duplicate(proposal.title, proposal.topic, list_videos(DATABASE_FILE))
+    return check_duplicate(proposal.title, proposal.topic, list_videos())
+
+
+@app.post("/api/chat/messages")
+def send_chat_preference_message(chat_message: ChatMessageRequest):
+    """Store a local planning message and return extracted Shorts preferences."""
+    return send_chat_message(chat_message.message)
+
+
+@app.get("/api/chat/messages")
+def chat_history():
+    """Return the locally persisted planning conversation."""
+    return {"messages": get_chat_history()}
+
+
+@app.get("/api/chat/preferences")
+def chat_preferences():
+    """Return the latest machine-usable Shorts preferences."""
+    return {"preferences": get_preferences()}
+
+
+@app.post("/api/chat/reset")
+def reset_chat():
+    """Clear only local chat history and extracted preferences."""
+    reset_chat_preferences()
+    return {"messages": [], "preferences": {}}

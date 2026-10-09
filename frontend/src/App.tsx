@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import './App.css'
 
 type Channel = {
@@ -34,6 +34,14 @@ type DuplicateResult = {
   reason: string
 }
 
+type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+type Preferences = Record<string, unknown>
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const numberFormatter = new Intl.NumberFormat()
 
@@ -55,6 +63,10 @@ function App() {
   const [proposedTitle, setProposedTitle] = useState('')
   const [checkingDuplicate, setCheckingDuplicate] = useState(false)
   const [duplicateResult, setDuplicateResult] = useState<DuplicateResult | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [preferences, setPreferences] = useState<Preferences>({})
+  const [sendingChat, setSendingChat] = useState(false)
 
   const loadChannel = async () => {
     setLoading(true)
@@ -124,10 +136,62 @@ function App() {
     }
   }
 
+  const loadChat = async () => {
+    try {
+      const [historyResponse, preferencesResponse] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/chat/messages`),
+        fetch(`${apiBaseUrl}/api/chat/preferences`),
+      ])
+      const historyBody = await historyResponse.json()
+      const preferencesBody = await preferencesResponse.json()
+      if (!historyResponse.ok || !preferencesResponse.ok) throw new Error('Could not load your saved planning preferences.')
+      setChatMessages(historyBody.messages)
+      setPreferences(preferencesBody.preferences)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load chat preferences.')
+    }
+  }
+
+  const sendChatMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!chatInput.trim()) return
+    setSendingChat(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: chatInput }),
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail ?? 'Could not save your preference message.')
+      setChatInput('')
+      setPreferences(body.preferences)
+      await loadChat()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not send your preference message.')
+    } finally {
+      setSendingChat(false)
+    }
+  }
+
+  const resetChat = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/reset`, { method: 'POST' })
+      if (!response.ok) throw new Error('Could not reset planning preferences.')
+      setChatMessages([])
+      setPreferences({})
+      setChatInput('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not reset planning preferences.')
+    }
+  }
+
+  const formatPreference = (value: unknown) => Array.isArray(value) ? value.join(', ') : String(value)
+
   useEffect(() => {
     const oauthResult = new URLSearchParams(window.location.search).get('youtube')
     if (oauthResult) window.history.replaceState({}, '', window.location.pathname)
-    const loadTimer = window.setTimeout(() => { void Promise.all([loadChannel(), loadVideos()]) }, 0)
+    const loadTimer = window.setTimeout(() => { void Promise.all([loadChannel(), loadVideos(), loadChat()]) }, 0)
     return () => window.clearTimeout(loadTimer)
   }, [])
 
@@ -157,6 +221,53 @@ function App() {
             </button>
           </div>
         )}
+
+        <section className="chat-section" aria-labelledby="chat-heading">
+          <div className="chat-heading">
+            <div>
+              <p className="connected-label">Shorts planner</p>
+              <h2 id="chat-heading">Describe your Shorts</h2>
+            </div>
+            <button className="secondary-button" type="button" onClick={resetChat}>Reset</button>
+          </div>
+          <p className="muted">Tell us the category, format, style, and production preferences you want.</p>
+          <div className="chat-layout">
+            <div className="chat-panel" aria-live="polite">
+              {chatMessages.length === 0 ? (
+                <p className="muted">Start with something like: “I want CS Shorts with four options and no voiceover.”</p>
+              ) : chatMessages.map((chatMessage, index) => (
+                <p className={`chat-bubble ${chatMessage.role}`} key={`${chatMessage.created_at}-${index}`}>
+                  {chatMessage.content}
+                </p>
+              ))}
+            </div>
+            <aside className="preferences-panel" aria-labelledby="preferences-heading">
+              <h3 id="preferences-heading">Current preferences</h3>
+              {Object.keys(preferences).length === 0 ? (
+                <p className="muted">No preferences saved yet.</p>
+              ) : (
+                <dl>
+                  {Object.entries(preferences).map(([key, value]) => (
+                    <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{formatPreference(value)}</dd></div>
+                  ))}
+                </dl>
+              )}
+            </aside>
+          </div>
+          <form className="chat-form" onSubmit={sendChatMessage}>
+            <label htmlFor="chat-input">Your Shorts requirements</label>
+            <textarea
+              id="chat-input"
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              placeholder="e.g. CS and aptitude Shorts, 59 seconds, dark navy theme..."
+              rows={3}
+            />
+            <button className="connect-button" type="submit" disabled={sendingChat}>
+              {sendingChat ? 'Sending…' : 'Send'}
+            </button>
+          </form>
+        </section>
 
         {channel && (
           <section className="duplicate-section" aria-labelledby="duplicate-heading">
