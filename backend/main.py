@@ -25,6 +25,7 @@ from youtube_oauth import (
 from database import initialize_database
 from videos_db import list_videos, upsert_videos, video_count
 from duplicate_detection import check_duplicate
+from content_generation import generate_short_draft, list_generated_drafts
 from chat_preferences import (
     get_chat_history,
     get_preferences,
@@ -83,6 +84,10 @@ class DuplicateCheckRequest(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2_000)
+
+
+class GenerateDraftRequest(BaseModel):
+    max_attempts: int = Field(default=5, ge=1, le=10)
 
 @app.get("/")
 def root():
@@ -209,6 +214,21 @@ def stored_youtube_videos():
 def check_video_duplicate(proposal: DuplicateCheckRequest):
     """Compare a proposed title/topic with locally synced video metadata."""
     return check_duplicate(proposal.title, proposal.topic, list_videos())
+
+
+@app.post("/api/content/generate")
+def generate_content_draft(request: GenerateDraftRequest):
+    """Create one duplicate-safe Short draft from the saved channel preferences."""
+    result = generate_short_draft(request.max_attempts)
+    if not result["accepted"]:
+        return JSONResponse(status_code=409, content=result)
+    return result
+
+
+@app.get("/api/content/drafts")
+def generated_content_drafts():
+    """List locally persisted accepted Short drafts."""
+    return {"drafts": list_generated_drafts()}
 
 
 @app.post("/api/chat/messages")

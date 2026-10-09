@@ -42,6 +42,29 @@ type ChatMessage = {
 
 type Preferences = Record<string, unknown>
 
+type DuplicateCheckHistory = {
+  attempt: number
+  candidate_title: string
+  accepted: boolean
+  duplicate_type: string
+  similarity_score: number
+  matched_title: string | null
+  reason: string
+}
+
+type GeneratedDraft = {
+  id: number
+  topic: string
+  title: string
+  hook: string
+  question: string
+  options: string[]
+  correct_answer: string
+  explanation: string | null
+  scene_script: string
+  target_duration_seconds: number
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const numberFormatter = new Intl.NumberFormat()
 
@@ -67,6 +90,9 @@ function App() {
   const [chatInput, setChatInput] = useState('')
   const [preferences, setPreferences] = useState<Preferences>({})
   const [sendingChat, setSendingChat] = useState(false)
+  const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [generatedDraft, setGeneratedDraft] = useState<GeneratedDraft | null>(null)
+  const [generationChecks, setGenerationChecks] = useState<DuplicateCheckHistory[]>([])
 
   const loadChannel = async () => {
     setLoading(true)
@@ -186,6 +212,25 @@ function App() {
     }
   }
 
+  const generateDraft = async () => {
+    setGeneratingDraft(true)
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/content/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_attempts: 5 }),
+      })
+      const body = await response.json()
+      setGenerationChecks(body.duplicate_checks ?? [])
+      if (!response.ok || !body.accepted) throw new Error(body.detail ?? 'No non-duplicate draft could be generated.')
+      setGeneratedDraft(body.draft)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not generate a Short draft.')
+    } finally {
+      setGeneratingDraft(false)
+    }
+  }
+
   const formatPreference = (value: unknown) => Array.isArray(value) ? value.join(', ') : String(value)
 
   useEffect(() => {
@@ -267,6 +312,38 @@ function App() {
               {sendingChat ? 'Sending…' : 'Send'}
             </button>
           </form>
+        </section>
+
+        <section className="generation-section" aria-labelledby="generation-heading">
+          <div className="chat-heading">
+            <div>
+              <p className="connected-label">Content draft</p>
+              <h2 id="generation-heading">Generate a Short</h2>
+            </div>
+            <button className="connect-button generate-button" type="button" onClick={generateDraft} disabled={generatingDraft}>
+              {generatingDraft ? 'Generating…' : 'Generate Short'}
+            </button>
+          </div>
+          <p className="muted">Uses your saved preferences and rejects overlapping video ideas before saving a draft.</p>
+          {generatedDraft && (
+            <article className="draft-card">
+              <p className="connected-label">{generatedDraft.topic}</p>
+              <h3>{generatedDraft.title}</h3>
+              <p><strong>Hook:</strong> {generatedDraft.hook}</p>
+              <p><strong>Question:</strong> {generatedDraft.question}</p>
+              {generatedDraft.options.length > 0 && <ol>{generatedDraft.options.map((option) => <li key={option}>{option}</li>)}</ol>}
+              <p><strong>Answer:</strong> {generatedDraft.correct_answer}</p>
+              {generatedDraft.explanation && <p><strong>Explanation:</strong> {generatedDraft.explanation}</p>}
+              <p><strong>Script:</strong> {generatedDraft.scene_script}</p>
+              <p><strong>Target duration:</strong> {generatedDraft.target_duration_seconds} seconds</p>
+            </article>
+          )}
+          {generationChecks.length > 0 && (
+            <div className="generation-checks">
+              <strong>Duplicate check: {generationChecks.at(-1)?.accepted ? 'passed' : 'rejected'}</strong>
+              <p>{generationChecks.length} attempt{generationChecks.length === 1 ? '' : 's'} · {generationChecks.at(-1)?.reason}</p>
+            </div>
+          )}
         </section>
 
         {channel && (

@@ -57,6 +57,16 @@ class ChannelPreferences(Base):
     )
 
 
+class GeneratedDraft(Base):
+    __tablename__ = "generated_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    topic: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    content: Mapped[dict[str, object]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 def database_url() -> str:
     """Build a PostgreSQL URL from environment variables without logging credentials."""
     configured_url = os.getenv("DATABASE_URL")
