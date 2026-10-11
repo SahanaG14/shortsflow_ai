@@ -39,3 +39,4 @@ SQLAlchemy==2.0.48
 psycopg[binary]==3.3.2
 python-dotenv==1.2.2
 Pillow==12.3.0
+edge-tts==7.2.8

@@ -27,3 +27,5 @@ backend/.oauth_state.json
 backend/shortsflow.db
 backend/generated-assets/
 backend/generated-videos/
+backend/generated-audio/
+backend/generated-countdowns/
