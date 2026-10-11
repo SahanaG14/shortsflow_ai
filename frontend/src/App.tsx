@@ -3,9 +3,9 @@ import './App.css'
 import { AppShell } from './components/AppShell'
 import { HomePage } from './pages/HomePage'
 import { ChatPage } from './pages/ChatPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
 import { ImagesPage } from './pages/ImagesPage'
 import { VideoEditingPage } from './pages/VideoEditingPage'
+import { UploadsPage } from './pages/UploadsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import type { AppRoute, AssistantMessage, Channel, DuplicateResult, Preferences, SyncResult, Video } from './types'
 
@@ -149,7 +149,7 @@ function App() {
   const content = route === '/chat' ? <ChatPage messages={assistantMessages} chatInput={assistantInput} sending={assistantSending} onChatInputChange={setAssistantInput} onSend={sendAssistantMessage} onClear={clearAssistantConversation} />
     : route === '/images' ? <ImagesPage apiBaseUrl={apiBaseUrl} />
       : route === '/video' ? <VideoEditingPage apiBaseUrl={apiBaseUrl} />
-        : route === '/uploads' ? <PlaceholderPage eyebrow="Publishing workspace" title="Uploads" description="Keep every finished Short organized before it goes live." items={['Ready to publish', 'Scheduled', 'Published', 'Failed and retry']} />
+        : route === '/uploads' ? <UploadsPage apiBaseUrl={apiBaseUrl} />
           : route === '/profile' ? <SettingsPage channel={channel} preferences={preferences} onReconnect={() => window.location.assign(`${apiBaseUrl}/api/youtube/connect`)} onSave={saveSettings} />
             : <HomePage channel={channel} loading={loading} videos={videos} draftCount={draftCount} syncing={syncing} duplicateResult={duplicateResult} proposedTitle={proposedTitle} onProposedTitleChange={setProposedTitle} onConnect={() => window.location.assign(`${apiBaseUrl}/api/youtube/connect`)} onSync={syncVideos} onCheckDuplicate={checkDuplicate} checkingDuplicate={checkingDuplicate} />
 

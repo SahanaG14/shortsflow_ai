@@ -29,6 +29,8 @@ from duplicate_detection import check_duplicate
 from content_generation import generate_short_draft, list_generated_drafts
 from image_generation import ASSET_DIRECTORY, generate_scenes, list_scenes, regenerate_scene, validate_scenes
 from video_rendering import VIDEO_DIRECTORY, VideoRenderError, get_video, render_video, validate_video
+from uploads import list_uploads, prepare_upload, upload as perform_upload
+from youtube_oauth import YouTubeUploadError
 from ai_provider import AIProviderError
 from assistant_service import chat as assistant_chat, clear_history as clear_assistant_history, get_history as get_assistant_history
 from chat_preferences import (
@@ -115,6 +117,9 @@ class SceneGenerationRequest(BaseModel):
 
 
 class VideoRenderRequest(BaseModel):
+    draft_id: int = Field(gt=0)
+
+class UploadPreparationRequest(BaseModel):
     draft_id: int = Field(gt=0)
 
 @app.get("/")
@@ -322,6 +327,19 @@ def rerender_short_video(draft_id: int):
         return {"video": render_video(draft_id)}
     except VideoRenderError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+@app.get('/api/uploads')
+def uploads(): return {'uploads': list_uploads()}
+
+@app.post('/api/uploads/prepare')
+def prepare_video_upload(request: UploadPreparationRequest):
+    try: return {'upload': prepare_upload(request.draft_id)}
+    except (ValueError, VideoRenderError) as error: raise HTTPException(status_code=422, detail=str(error)) from error
+
+@app.post('/api/uploads/{record_id}/approve')
+def approve_private_upload(record_id: int):
+    try: return {'upload': perform_upload(record_id, CLIENT_SECRETS_FILE, TOKEN_FILE)}
+    except (ValueError, YouTubeUploadError) as error: raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/api/chat/messages")

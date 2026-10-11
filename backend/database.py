@@ -108,6 +108,24 @@ class GeneratedVideo(Base):
     rendered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class UploadRecord(Base):
+    __tablename__ = "upload_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_render_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    draft_id: Mapped[int] = mapped_column(Integer, index=True)
+    youtube_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    hashtags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    privacy_status: Mapped[str] = mapped_column(String(24), default="private")
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    upload_state: Mapped[str] = mapped_column(String(24), default="ready")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class AssistantConversation(Base):
     """A separate persisted conversation stream for the read-only AI assistant."""
 

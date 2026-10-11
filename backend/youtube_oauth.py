@@ -11,9 +11,13 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload
 
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
-SCOPES = [YOUTUBE_READONLY_SCOPE]
+YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+# Read access remains available for channel and catalog features. Upload capability
+# requires a new consent grant for existing read-only tokens.
+SCOPES = [YOUTUBE_READONLY_SCOPE, YOUTUBE_UPLOAD_SCOPE]
 LOGGER = logging.getLogger(__name__)
 
 
@@ -23,6 +27,10 @@ class OAuthConfigurationError(Exception):
 
 class YouTubeAuthenticationError(Exception):
     """The user needs to connect or reconnect their YouTube account."""
+
+
+class YouTubeUploadScopeError(YouTubeAuthenticationError):
+    """The current token was granted before the upload scope was added."""
 
 
 class OAuthTokenExchangeError(YouTubeAuthenticationError):
@@ -37,6 +45,10 @@ class OAuthTokenExchangeError(YouTubeAuthenticationError):
 
 class YouTubeSyncError(Exception):
     """The connected channel's uploads could not be fetched."""
+
+
+class YouTubeUploadError(YouTubeAuthenticationError):
+    """An upload failed without exposing sensitive provider details."""
 
 
 def _require_client_secrets(client_secrets_file: Path) -> None:
@@ -101,7 +113,9 @@ def save_authorization_token(
         raise OAuthTokenExchangeError(safe_code, safe_description, status_code if isinstance(status_code, int) else None) from error
 
 
-def _load_credentials(client_secrets_file: Path, token_file: Path) -> Credentials:
+def _load_credentials(
+    client_secrets_file: Path, token_file: Path, *, require_upload_scope: bool = False
+) -> Credentials:
     _require_client_secrets(client_secrets_file)
     if not token_file.is_file():
         raise YouTubeAuthenticationError("No YouTube account is connected yet.")
@@ -114,6 +128,10 @@ def _load_credentials(client_secrets_file: Path, token_file: Path) -> Credential
         raise YouTubeAuthenticationError("Your YouTube connection has expired. Please reconnect.") from error
     if not credentials.valid:
         raise YouTubeAuthenticationError("Your YouTube connection has expired. Please reconnect.")
+    if require_upload_scope and not credentials.has_scopes([YOUTUBE_UPLOAD_SCOPE]):
+        raise YouTubeUploadScopeError(
+            "YouTube upload permission is not authorized. Reconnect your channel and approve upload access."
+        )
     return credentials
 
 
@@ -195,3 +213,23 @@ def get_uploaded_videos(client_secrets_file: Path, token_file: Path) -> list[dic
         if error.resp.status in {401, 403}:
             raise YouTubeAuthenticationError("YouTube authorization was rejected. Please reconnect.") from error
         raise YouTubeSyncError("YouTube uploads could not be fetched.") from error
+
+
+def upload_private_video(client_secrets_file: Path, token_file: Path, video_file: Path, title: str, description: str, tags: list[str]) -> str:
+    """Upload a single local MP4 as private; public publishing is intentionally unsupported."""
+    if not video_file.is_file():
+        raise YouTubeUploadError("Validated video file is missing.")
+    credentials = _load_credentials(client_secrets_file, token_file, require_upload_scope=True)
+    try:
+        youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
+        request = youtube.videos().insert(part="snippet,status", body={"snippet": {"title": title, "description": description, "tags": tags}, "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}}, media_body=MediaFileUpload(str(video_file), mimetype="video/mp4", resumable=True))
+        response = request.execute()
+        video_id = response.get("id")
+        if not video_id: raise YouTubeUploadError("YouTube did not return an uploaded video ID.")
+        return str(video_id)
+    except YouTubeUploadError:
+        raise
+    except HttpError as error:
+        raise YouTubeUploadError(f"YouTube upload failed with HTTP status {error.resp.status}.") from error
+    except Exception as error:
+        raise YouTubeUploadError("YouTube upload could not be completed. Retry from ShortsFlow.") from error

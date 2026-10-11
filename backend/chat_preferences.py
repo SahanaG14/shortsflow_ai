@@ -24,6 +24,8 @@ PREFERENCE_FIELDS = (
     "language",
     "videos_per_day",
     "duplicate_prevention_enabled",
+    "generate_title_enabled", "generate_description_enabled", "generate_hashtags_enabled",
+    "manual_approval_enabled", "auto_upload_enabled", "upload_schedule_times", "timezone",
 )
 
 
