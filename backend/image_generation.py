@@ -61,8 +61,9 @@ def _scene_definitions(draft: Mapping[str, object], settings: Mapping[str, objec
     context = {**settings, **metadata, **overrides}
     options = draft.get("options") if isinstance(draft.get("options"), list) else []
     timer = int(context.get("thinking_timer_seconds", 0) or 0)
-    branding = str(context.get("channel_branding") or context.get("channel_name") or "ShortsFlow AI")
-    common = {"theme": context.get("theme", "purple"), "language": context.get("language", "English"), "branding": branding}
+    # Branding and technical metadata remain internal render data.  They must not
+    # be printed into the viewer-facing Short frames.
+    common = {"theme": context.get("theme", "purple"), "language": context.get("language", "English")}
     scenes: list[dict[str, object]] = [
         {**common, "scene_type": "hook", "heading": "QUICK CHALLENGE", "body": str(draft.get("hook", ""))},
         {**common, "scene_type": "question", "heading": "QUESTION", "body": str(draft.get("question", ""))},
@@ -94,18 +95,17 @@ class DeterministicSceneRenderer:
             f'<rect width="{WIDTH}" height="{HEIGHT}" fill="{background}"/>',
             f'<rect x="48" y="120" width="984" height="1640" rx="64" fill="{panel}" stroke="{accent}" stroke-width="4"/>',
             f'<rect x="48" y="120" width="984" height="18" rx="9" fill="{accent}"/>',
-            f'<text x="96" y="225" fill="{accent}" font-family="Arial, sans-serif" font-size="46" font-weight="700">{escape(str(scene.get("branding", "ShortsFlow AI")))}</text>',
-            f'<text x="96" y="345" fill="{accent}" font-family="Arial, sans-serif" font-size="54" font-weight="700">{heading}</text>',
+            f'<text x="96" y="290" fill="{accent}" font-family="Arial, sans-serif" font-size="58" font-weight="700">{heading}</text>',
         ]
         if scene_type == "options":
             for index, option in enumerate(scene.get("options", [])):
-                top = 470 + index * 250
+                top = 440 + index * 250
                 content.extend([
                     f'<rect x="96" y="{top}" width="888" height="184" rx="34" fill="{background}" stroke="{accent}" stroke-width="3"/>',
                     f'<text x="142" y="{top + 112}" fill="{text}" font-family="Arial, sans-serif" font-size="56" font-weight="600">{escape(chr(65 + index) + ". " + str(option))}</text>',
                 ])
         else:
-            start = 610 if scene_type != "thinking" else 920
+            start = 540 if scene_type != "thinking" else 920
             font_size = 78 if scene_type in {"question", "answer"} else 64
             if scene_type == "thinking":
                 content.extend([f'<circle cx="540" cy="675" r="245" fill="none" stroke="{accent}" stroke-width="28"/>', f'<circle cx="540" cy="675" r="196" fill="{background}"/>'])
@@ -166,7 +166,7 @@ def _validate_scene(record: GeneratedScene) -> list[str]:
     if 'width="1080"' not in source or 'height="1920"' not in source:
         errors.append("Image is not exactly 1080 × 1920.")
     data = record.render_data
-    expected = [str(data.get("heading", "")), str(data.get("branding", ""))]
+    expected = [str(data.get("heading", ""))]
     expected.extend(str(value) for value in data.get("options", []) if value)
     if data.get("body"):
         limit = 20 if record.scene_type in {"question", "explanation"} else 24

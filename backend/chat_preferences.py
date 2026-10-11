@@ -18,6 +18,7 @@ PREFERENCE_FIELDS = (
     "thinking_timer_seconds",
     "explanation_enabled",
     "voiceover_enabled",
+    "voice_gender",
     "background_music_enabled",
     "logo_enabled",
     "logo_position",

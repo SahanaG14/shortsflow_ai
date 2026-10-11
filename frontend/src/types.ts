@@ -80,9 +80,16 @@ export type RenderedVideo = {
   height: number | null
   file_size_bytes: number | null
   validation_status: string
-  timeline: Array<{ scene_id: string; scene_number: number; scene_type: string; duration_seconds: number }>
+  timeline: Array<{ scene_id: string; scene_number: number; scene_type: string; duration_seconds: number; countdown_value?: number }>
   audio_expected: boolean
   audio_note: string
+  voiceover_enabled: boolean
+  voice_provider: string
+  voice_gender: string
+  voice_id: string
+  audio_path: string
+  audio_duration_seconds: number | null
+  countdown_length: number
 }
 
 export type AppRoute = '/' | '/home' | '/chat' | '/images' | '/video' | '/uploads' | '/profile'

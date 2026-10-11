@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -104,6 +104,13 @@ class GeneratedVideo(Base):
     timeline: Mapped[list[object]] = mapped_column(JSONB, default=list)
     audio_expected: Mapped[bool] = mapped_column(Boolean, default=False)
     audio_note: Mapped[str] = mapped_column(Text, default="")
+    voiceover_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    voice_provider: Mapped[str] = mapped_column(String(64), default="")
+    voice_gender: Mapped[str] = mapped_column(String(16), default="")
+    voice_id: Mapped[str] = mapped_column(String(96), default="")
+    audio_path: Mapped[str] = mapped_column(Text, default="")
+    audio_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    countdown_length: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     rendered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -207,6 +214,20 @@ def _session_factory_for_database() -> sessionmaker[Session]:
 def initialize_database() -> None:
     """Create the application's PostgreSQL tables when the backend starts."""
     Base.metadata.create_all(get_engine())
+    # This project intentionally keeps local-development schema setup lightweight.
+    # `create_all` does not add columns to an existing PostgreSQL table.
+    video_columns = {
+        "voiceover_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "voice_provider": "VARCHAR(64) NOT NULL DEFAULT ''",
+        "voice_gender": "VARCHAR(16) NOT NULL DEFAULT ''",
+        "voice_id": "VARCHAR(96) NOT NULL DEFAULT ''",
+        "audio_path": "TEXT NOT NULL DEFAULT ''",
+        "audio_duration_seconds": "DOUBLE PRECISION",
+        "countdown_length": "INTEGER NOT NULL DEFAULT 0",
+    }
+    with get_engine().begin() as connection:
+        for name, definition in video_columns.items():
+            connection.execute(text(f"ALTER TABLE generated_videos ADD COLUMN IF NOT EXISTS {name} {definition}"))
 
 
 @contextmanager
