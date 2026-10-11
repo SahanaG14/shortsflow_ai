@@ -1,0 +1,60 @@
+export type Channel = {
+  channel_id: string
+  title: string
+  description: string
+  subscriber_count: number
+  video_count: number
+  view_count: number
+}
+
+export type Video = {
+  youtube_video_id: string
+  title: string
+  description: string
+  published_at: string
+  thumbnail_url: string
+}
+
+export type SyncResult = {
+  fetched_count: number
+  inserted_count: number
+  updated_count: number
+  total_stored_count: number
+}
+
+export type DuplicateResult = {
+  is_duplicate: boolean
+  duplicate_type: 'exact_title' | 'similar_title' | 'similar_topic' | 'none'
+  similarity_score: number
+  matched_video_id: string | null
+  matched_title: string | null
+  reason: string
+}
+
+export type ChatMessage = { role: 'user' | 'assistant'; content: string; created_at: string }
+export type Preferences = Record<string, unknown>
+
+export type DuplicateCheckHistory = {
+  attempt: number
+  candidate_title: string
+  accepted: boolean
+  duplicate_type: string
+  similarity_score: number
+  matched_title: string | null
+  reason: string
+}
+
+export type GeneratedDraft = {
+  id: number
+  topic: string
+  title: string
+  hook: string
+  question: string
+  options: string[]
+  correct_answer: string
+  explanation: string | null
+  scene_script: string
+  target_duration_seconds: number
+}
+
+export type AppRoute = '/' | '/home' | '/chat' | '/images' | '/video' | '/uploads' | '/profile'

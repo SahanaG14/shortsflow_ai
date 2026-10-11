@@ -151,10 +151,11 @@ def _persist_draft(draft: Mapping[str, object]) -> dict[str, object]:
 
 def generate_short_draft(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    temporary_overrides: Mapping[str, object] | None = None,
     provider: ContentProvider | None = None,
 ) -> dict[str, object]:
-    """Generate and persist the first candidate that does not overlap existing videos."""
-    preferences = get_preferences()
+    """Generate from permanent Settings plus per-draft chat overrides."""
+    preferences = {**get_preferences(), **(dict(temporary_overrides) if temporary_overrides else {})}
     videos = list_videos()
     candidate_provider = provider or LocalTemplateContentProvider()
     duplicate_checks: list[dict[str, object]] = []
@@ -166,6 +167,9 @@ def generate_short_draft(
         )
         duplicate_checks.append(_duplicate_history_entry(attempt, candidate, duplicate_result))
         if not duplicate_result["is_duplicate"]:
+            metadata = candidate.get("metadata")
+            if isinstance(metadata, dict):
+                metadata["temporary_overrides"] = dict(temporary_overrides or {})
             return {
                 "accepted": True,
                 "attempt_count": attempt,

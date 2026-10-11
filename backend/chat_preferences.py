@@ -41,18 +41,24 @@ def get_chat_history() -> list[dict[str, str]]:
 
 
 def get_preferences() -> dict[str, object]:
+    """Return the permanent Settings-owned defaults."""
     with session_scope() as session:
         record = session.get(ChannelPreferences, 1)
         return dict(record.preferences) if record else {}
 
 
-def _save_preferences(preferences: Mapping[str, object]) -> None:
+def save_preferences(preferences: Mapping[str, object]) -> dict[str, object]:
+    """Replace permanent Settings defaults in the single preferences record."""
+    sanitized = {
+        field: value for field, value in preferences.items() if field in PREFERENCE_FIELDS
+    }
     with session_scope() as session:
         record = session.get(ChannelPreferences, 1)
         if record:
-            record.preferences = dict(preferences)
+            record.preferences = dict(sanitized)
         else:
-            session.add(ChannelPreferences(id=1, preferences=dict(preferences)))
+            session.add(ChannelPreferences(id=1, preferences=dict(sanitized)))
+    return sanitized
 
 
 def _append_message(role: str, content: str) -> None:
@@ -154,21 +160,31 @@ def extract_preferences(message: str, existing: Mapping[str, object]) -> tuple[d
 
 
 def send_chat_message(message: str) -> dict[str, object]:
-    """Store a user message, update preferences, and return a local assistant acknowledgement."""
+    """Store chat context and return temporary overrides without changing Settings."""
     cleaned_message = message.strip()
-    preferences, changed = extract_preferences(cleaned_message, get_preferences())
+    settings = get_preferences()
+    proposed_preferences, changed = extract_preferences(cleaned_message, settings)
+    overrides = {
+        field: proposed_preferences[field]
+        for field in changed
+        if proposed_preferences.get(field) != settings.get(field)
+    }
     _append_message("user", cleaned_message)
-    _save_preferences(preferences)
-    if changed:
-        readable_changes = ", ".join(field.replace("_", " ") for field in changed)
-        assistant_message = f"Updated your Shorts preferences: {readable_changes}."
+    if overrides:
+        readable_changes = ", ".join(field.replace("_", " ") for field in overrides)
+        assistant_message = f"Temporary draft override noted: {readable_changes}. Your saved Settings remain unchanged."
     else:
-        assistant_message = "I saved your message. Try specifying a category, duration, format, or production preference."
+        assistant_message = "I saved your message as draft context. Your permanent Settings remain unchanged."
     _append_message("assistant", assistant_message)
-    return {"assistant_message": assistant_message, "preferences": preferences, "changed_fields": changed}
+    return {
+        "assistant_message": assistant_message,
+        "settings": settings,
+        "overrides": overrides,
+        "changed_fields": list(overrides),
+    }
 
 
 def reset_chat_preferences() -> None:
+    """Clear conversation history without deleting permanent Settings."""
     with session_scope() as session:
         session.execute(delete(ChatMessageRecord))
-        session.execute(delete(ChannelPreferences))

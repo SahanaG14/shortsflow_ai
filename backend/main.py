@@ -30,6 +30,7 @@ from chat_preferences import (
     get_chat_history,
     get_preferences,
     reset_chat_preferences,
+    save_preferences,
     send_chat_message,
 )
 
@@ -88,6 +89,11 @@ class ChatMessageRequest(BaseModel):
 
 class GenerateDraftRequest(BaseModel):
     max_attempts: int = Field(default=5, ge=1, le=10)
+    temporary_overrides: dict[str, object] = Field(default_factory=dict)
+
+
+class SettingsRequest(BaseModel):
+    preferences: dict[str, object] = Field(default_factory=dict)
 
 @app.get("/")
 def root():
@@ -218,8 +224,8 @@ def check_video_duplicate(proposal: DuplicateCheckRequest):
 
 @app.post("/api/content/generate")
 def generate_content_draft(request: GenerateDraftRequest):
-    """Create one duplicate-safe Short draft from the saved channel preferences."""
-    result = generate_short_draft(request.max_attempts)
+    """Create a duplicate-safe draft from Settings plus transient chat overrides."""
+    result = generate_short_draft(request.max_attempts, request.temporary_overrides)
     if not result["accepted"]:
         return JSONResponse(status_code=409, content=result)
     return result
@@ -245,12 +251,24 @@ def chat_history():
 
 @app.get("/api/chat/preferences")
 def chat_preferences():
-    """Return the latest machine-usable Shorts preferences."""
+    """Compatibility endpoint for permanent Settings defaults."""
     return {"preferences": get_preferences()}
+
+
+@app.get("/api/settings")
+def settings():
+    """Return the permanent channel/content defaults owned by Settings."""
+    return {"preferences": get_preferences()}
+
+
+@app.put("/api/settings")
+def update_settings(request: SettingsRequest):
+    """Persist the permanent channel/content defaults configured in Settings."""
+    return {"preferences": save_preferences(request.preferences)}
 
 
 @app.post("/api/chat/reset")
 def reset_chat():
-    """Clear only local chat history and extracted preferences."""
+    """Clear chat history and current draft context, retaining Settings."""
     reset_chat_preferences()
-    return {"messages": [], "preferences": {}}
+    return {"messages": [], "preferences": get_preferences()}
