@@ -32,6 +32,7 @@ export type DuplicateResult = {
 }
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string; created_at: string }
+export type AssistantMessage = { role: 'user' | 'assistant'; content: string; tools_used?: string[]; created_at?: string }
 export type Preferences = Record<string, unknown>
 
 export type DuplicateCheckHistory = {

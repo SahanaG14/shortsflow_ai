@@ -5,7 +5,7 @@ import { HomePage } from './pages/HomePage'
 import { ChatPage } from './pages/ChatPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { SettingsPage } from './pages/SettingsPage'
-import type { AppRoute, Channel, ChatMessage, DuplicateCheckHistory, DuplicateResult, GeneratedDraft, Preferences, SyncResult, Video } from './types'
+import type { AppRoute, AssistantMessage, Channel, DuplicateResult, Preferences, SyncResult, Video } from './types'
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -29,14 +29,11 @@ function App() {
   const [proposedTitle, setProposedTitle] = useState('')
   const [checkingDuplicate, setCheckingDuplicate] = useState(false)
   const [duplicateResult, setDuplicateResult] = useState<DuplicateResult | null>(null)
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState('')
   const [preferences, setPreferences] = useState<Preferences>({})
-  const [draftOverrides, setDraftOverrides] = useState<Preferences>({})
-  const [sendingChat, setSendingChat] = useState(false)
-  const [generatingDraft, setGeneratingDraft] = useState(false)
-  const [generatedDraft, setGeneratedDraft] = useState<GeneratedDraft | null>(null)
-  const [generationChecks, setGenerationChecks] = useState<DuplicateCheckHistory[]>([])
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([])
+  const [assistantInput, setAssistantInput] = useState('')
+  const [assistantSessionId, setAssistantSessionId] = useState(() => localStorage.getItem('shortsflow-assistant-session') ?? '')
+  const [assistantSending, setAssistantSending] = useState(false)
   const [draftCount, setDraftCount] = useState(0)
 
   const navigate = (nextRoute: AppRoute) => {
@@ -65,15 +62,13 @@ function App() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load stored videos.') }
   }
 
-  const loadChat = async () => {
+  const loadSettings = async () => {
     try {
-      const [historyResponse, preferencesResponse] = await Promise.all([fetch(`${apiBaseUrl}/api/chat/messages`), fetch(`${apiBaseUrl}/api/chat/preferences`)])
-      const historyBody = await historyResponse.json()
-      const preferencesBody = await preferencesResponse.json()
-      if (!historyResponse.ok || !preferencesResponse.ok) throw new Error('Could not load your saved planning preferences.')
-      setChatMessages(historyBody.messages)
-      setPreferences(preferencesBody.preferences)
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load chat preferences.') }
+      const response = await fetch(`${apiBaseUrl}/api/settings`)
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.detail ?? 'Could not load saved Settings.')
+      setPreferences(body.preferences)
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load saved Settings.') }
   }
 
   const loadDrafts = async () => {
@@ -108,40 +103,29 @@ function App() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not check for duplicates.') } finally { setCheckingDuplicate(false) }
   }
 
-  const sendChatMessage = async (event: FormEvent<HTMLFormElement>) => {
+  const sendAssistantMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!chatInput.trim()) return
-    setSendingChat(true)
+    const messageText = assistantInput.trim()
+    if (!messageText) return
+    setAssistantSending(true)
+    setAssistantMessages((current) => [...current, { role: 'user', content: messageText }])
+    setAssistantInput('')
     try {
-      const response = await fetch(`${apiBaseUrl}/api/chat/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: chatInput }) })
+      const response = await fetch(`${apiBaseUrl}/api/assistant/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: messageText, session_id: assistantSessionId || null }) })
       const body = await response.json()
-      if (!response.ok) throw new Error(body.detail ?? 'Could not save your draft instruction.')
-      setChatInput('')
-      setDraftOverrides((current) => ({ ...current, ...(body.overrides ?? {}) }))
-      await loadChat()
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not send your draft instruction.') } finally { setSendingChat(false) }
+      if (!response.ok) throw new Error(body.detail ?? 'Could not reach the assistant.')
+      setAssistantSessionId(body.session_id)
+      localStorage.setItem('shortsflow-assistant-session', body.session_id)
+      setAssistantMessages((current) => [...current, { role: 'assistant', content: body.response, tools_used: body.tools_used ?? [] }])
+    } catch (error) { setAssistantMessages((current) => [...current, { role: 'assistant', content: error instanceof Error ? error.message : 'Could not reach the assistant.' }]) } finally { setAssistantSending(false) }
   }
 
-  const resetChat = async () => {
+  const clearAssistantConversation = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/chat/reset`, { method: 'POST' })
-      const body = await response.json()
-      if (!response.ok) throw new Error(body.detail ?? 'Could not reset chat context.')
-      setChatMessages([]); setPreferences(body.preferences ?? preferences); setDraftOverrides({}); setChatInput('')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not reset chat context.') }
-  }
-
-  const generateDraft = async () => {
-    setGeneratingDraft(true)
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/content/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_attempts: 5, temporary_overrides: draftOverrides }) })
-      const body = await response.json()
-      setGenerationChecks(body.duplicate_checks ?? [])
-      if (!response.ok || !body.accepted) throw new Error(body.detail ?? 'No non-duplicate draft could be generated.')
-      setGeneratedDraft(body.draft)
-      setDraftOverrides({})
-      await loadDrafts()
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not generate a Short draft.') } finally { setGeneratingDraft(false) }
+      if (assistantSessionId) await fetch(`${apiBaseUrl}/api/assistant/conversations/${assistantSessionId}/clear`, { method: 'POST' })
+      localStorage.removeItem('shortsflow-assistant-session')
+      setAssistantSessionId(''); setAssistantMessages([]); setAssistantInput('')
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not clear the assistant conversation.') }
   }
 
   const saveSettings = async (nextPreferences: Preferences) => {
@@ -156,11 +140,11 @@ function App() {
     if (oauthResult) window.history.replaceState({}, '', window.location.pathname)
     const onPopState = () => setRoute(routeForPath(window.location.pathname))
     window.addEventListener('popstate', onPopState)
-    const loadTimer = window.setTimeout(() => { void Promise.all([loadChannel(), loadVideos(), loadChat(), loadDrafts()]) }, 0)
+    const loadTimer = window.setTimeout(() => { void Promise.all([loadChannel(), loadVideos(), loadSettings(), loadDrafts()]) }, 0)
     return () => { window.removeEventListener('popstate', onPopState); window.clearTimeout(loadTimer) }
   }, [])
 
-  const content = route === '/chat' ? <ChatPage messages={chatMessages} preferences={preferences} draftOverrides={draftOverrides} chatInput={chatInput} sending={sendingChat} onChatInputChange={setChatInput} onSend={sendChatMessage} onReset={resetChat} generating={generatingDraft} onGenerate={generateDraft} draft={generatedDraft} checks={generationChecks} />
+  const content = route === '/chat' ? <ChatPage messages={assistantMessages} chatInput={assistantInput} sending={assistantSending} onChatInputChange={setAssistantInput} onSend={sendAssistantMessage} onClear={clearAssistantConversation} />
     : route === '/images' ? <PlaceholderPage eyebrow="Scene workspace" title="Images" description="Prepare visual scenes for every moment of a Short." items={['Question scene', 'Options scene', 'Answer reveal', '9:16 preview']} />
       : route === '/video' ? <PlaceholderPage eyebrow="Production workspace" title="Video Editing" description="Shape scenes, timing, transitions, and the final Short." items={['Scene timeline', 'Timer and transitions', 'Music and voiceover', 'Preview validation']} />
         : route === '/uploads' ? <PlaceholderPage eyebrow="Publishing workspace" title="Uploads" description="Keep every finished Short organized before it goes live." items={['Ready to publish', 'Scheduled', 'Published', 'Failed and retry']} />

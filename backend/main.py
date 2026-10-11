@@ -26,6 +26,8 @@ from database import initialize_database
 from videos_db import list_videos, upsert_videos, video_count
 from duplicate_detection import check_duplicate
 from content_generation import generate_short_draft, list_generated_drafts
+from ai_provider import AIProviderError
+from assistant_service import chat as assistant_chat, clear_history as clear_assistant_history, get_history as get_assistant_history
 from chat_preferences import (
     get_chat_history,
     get_preferences,
@@ -94,6 +96,11 @@ class GenerateDraftRequest(BaseModel):
 
 class SettingsRequest(BaseModel):
     preferences: dict[str, object] = Field(default_factory=dict)
+
+
+class AssistantChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4_000)
+    session_id: str | None = Field(default=None, max_length=64)
 
 @app.get("/")
 def root():
@@ -272,3 +279,23 @@ def reset_chat():
     """Clear chat history and current draft context, retaining Settings."""
     reset_chat_preferences()
     return {"messages": [], "preferences": get_preferences()}
+
+
+@app.post("/api/assistant/chat")
+def chat_with_assistant(request: AssistantChatRequest):
+    """Answer with the local Ollama provider and controlled read-only tools only."""
+    try:
+        return assistant_chat(request.message, request.session_id)
+    except AIProviderError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/api/assistant/conversations/{session_id}")
+def assistant_conversation_history(session_id: str):
+    return {"messages": get_assistant_history(session_id)}
+
+
+@app.post("/api/assistant/conversations/{session_id}/clear")
+def clear_assistant_conversation(session_id: str):
+    clear_assistant_history(session_id)
+    return {"messages": []}

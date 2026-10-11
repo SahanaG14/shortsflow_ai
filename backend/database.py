@@ -67,6 +67,32 @@ class GeneratedDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AssistantConversation(Base):
+    """A separate persisted conversation stream for the read-only AI assistant."""
+
+    __tablename__ = "assistant_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AssistantMessage(Base):
+    """Conversation messages and the non-sensitive tool names used to answer them."""
+
+    __tablename__ = "assistant_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(Integer, index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    tools_used: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 def database_url() -> str:
     """Build a PostgreSQL URL from environment variables without logging credentials."""
     configured_url = os.getenv("DATABASE_URL")
