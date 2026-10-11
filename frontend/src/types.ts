@@ -58,4 +58,16 @@ export type GeneratedDraft = {
   target_duration_seconds: number
 }
 
+export type GeneratedScene = {
+  id: number
+  scene_id: string
+  draft_id: number
+  scene_number: number
+  scene_type: string
+  image_path: string
+  generation_status: string
+  validation_status: string
+  render_data: Record<string, unknown>
+}
+
 export type AppRoute = '/' | '/home' | '/chat' | '/images' | '/video' | '/uploads' | '/profile'

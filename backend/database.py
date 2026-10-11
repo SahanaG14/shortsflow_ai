@@ -67,6 +67,26 @@ class GeneratedDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class GeneratedScene(Base):
+    """Metadata for deterministic visual scenes rendered for an accepted draft."""
+
+    __tablename__ = "generated_scenes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scene_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    draft_id: Mapped[int] = mapped_column(Integer, index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    scene_type: Mapped[str] = mapped_column(String(40))
+    image_path: Mapped[str] = mapped_column(Text)
+    generation_status: Mapped[str] = mapped_column(String(24), default="generated")
+    validation_status: Mapped[str] = mapped_column(String(24), default="pending")
+    render_data: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AssistantConversation(Base):
     """A separate persisted conversation stream for the read-only AI assistant."""
 

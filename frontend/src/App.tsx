@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell'
 import { HomePage } from './pages/HomePage'
 import { ChatPage } from './pages/ChatPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
+import { ImagesPage } from './pages/ImagesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import type { AppRoute, AssistantMessage, Channel, DuplicateResult, Preferences, SyncResult, Video } from './types'
 
@@ -145,7 +146,7 @@ function App() {
   }, [])
 
   const content = route === '/chat' ? <ChatPage messages={assistantMessages} chatInput={assistantInput} sending={assistantSending} onChatInputChange={setAssistantInput} onSend={sendAssistantMessage} onClear={clearAssistantConversation} />
-    : route === '/images' ? <PlaceholderPage eyebrow="Scene workspace" title="Images" description="Prepare visual scenes for every moment of a Short." items={['Question scene', 'Options scene', 'Answer reveal', '9:16 preview']} />
+    : route === '/images' ? <ImagesPage apiBaseUrl={apiBaseUrl} />
       : route === '/video' ? <PlaceholderPage eyebrow="Production workspace" title="Video Editing" description="Shape scenes, timing, transitions, and the final Short." items={['Scene timeline', 'Timer and transitions', 'Music and voiceover', 'Preview validation']} />
         : route === '/uploads' ? <PlaceholderPage eyebrow="Publishing workspace" title="Uploads" description="Keep every finished Short organized before it goes live." items={['Ready to publish', 'Scheduled', 'Published', 'Failed and retry']} />
           : route === '/profile' ? <SettingsPage channel={channel} preferences={preferences} onReconnect={() => window.location.assign(`${apiBaseUrl}/api/youtube/connect`)} onSave={saveSettings} />
