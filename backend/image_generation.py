@@ -88,27 +88,29 @@ class DeterministicSceneRenderer:
         background, panel, accent, text = _theme_colors(scene.get("theme"))
         heading = escape(str(scene.get("heading", "")))
         body = str(scene.get("body", ""))
-        lines = _wrapped_lines(body, 24)
+        scene_type = str(scene.get("scene_type", ""))
+        lines = _wrapped_lines(body, 20 if scene_type in {"question", "explanation"} else 24)
         content: list[str] = [
             f'<rect width="{WIDTH}" height="{HEIGHT}" fill="{background}"/>',
-            f'<rect x="70" y="230" width="940" height="1270" rx="52" fill="{panel}" stroke="{accent}" stroke-width="3"/>',
-            f'<text x="90" y="120" fill="{accent}" font-family="Arial, sans-serif" font-size="38" font-weight="700">{escape(str(scene.get("branding", "ShortsFlow AI")))}</text>',
-            f'<text x="110" y="370" fill="{accent}" font-family="Arial, sans-serif" font-size="42" font-weight="700">{heading}</text>',
+            f'<rect x="48" y="120" width="984" height="1640" rx="64" fill="{panel}" stroke="{accent}" stroke-width="4"/>',
+            f'<rect x="48" y="120" width="984" height="18" rx="9" fill="{accent}"/>',
+            f'<text x="96" y="225" fill="{accent}" font-family="Arial, sans-serif" font-size="46" font-weight="700">{escape(str(scene.get("branding", "ShortsFlow AI")))}</text>',
+            f'<text x="96" y="345" fill="{accent}" font-family="Arial, sans-serif" font-size="54" font-weight="700">{heading}</text>',
         ]
-        if scene.get("scene_type") == "options":
+        if scene_type == "options":
             for index, option in enumerate(scene.get("options", [])):
-                top = 470 + index * 190
+                top = 470 + index * 250
                 content.extend([
-                    f'<rect x="115" y="{top}" width="850" height="135" rx="28" fill="{background}" stroke="{accent}" stroke-width="2"/>',
-                    f'<text x="155" y="{top + 85}" fill="{text}" font-family="Arial, sans-serif" font-size="44">{escape(chr(65 + index) + ". " + str(option))}</text>',
+                    f'<rect x="96" y="{top}" width="888" height="184" rx="34" fill="{background}" stroke="{accent}" stroke-width="3"/>',
+                    f'<text x="142" y="{top + 112}" fill="{text}" font-family="Arial, sans-serif" font-size="56" font-weight="600">{escape(chr(65 + index) + ". " + str(option))}</text>',
                 ])
         else:
-            start = 535 if scene.get("scene_type") != "thinking" else 760
-            if scene.get("scene_type") == "thinking":
-                content.append(f'<circle cx="540" cy="610" r="170" fill="none" stroke="{accent}" stroke-width="20"/>')
+            start = 610 if scene_type != "thinking" else 920
+            font_size = 78 if scene_type in {"question", "answer"} else 64
+            if scene_type == "thinking":
+                content.extend([f'<circle cx="540" cy="675" r="245" fill="none" stroke="{accent}" stroke-width="28"/>', f'<circle cx="540" cy="675" r="196" fill="{background}"/>'])
             for index, line in enumerate(lines):
-                content.append(f'<text x="130" y="{start + index * 88}" fill="{text}" font-family="Arial, sans-serif" font-size="56" font-weight="600">{escape(line)}</text>')
-        content.append(f'<text x="540" y="1740" text-anchor="middle" fill="{text}" font-family="Arial, sans-serif" font-size="30">9:16 • {escape(str(scene.get("language", "English")))}</text>')
+                content.append(f'<text x="104" y="{start + index * (font_size + 34)}" fill="{text}" font-family="Arial, sans-serif" font-size="{font_size}" font-weight="600">{escape(line)}</text>')
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">' + ''.join(content) + '</svg>', encoding="utf-8")
 
@@ -167,7 +169,8 @@ def _validate_scene(record: GeneratedScene) -> list[str]:
     expected = [str(data.get("heading", "")), str(data.get("branding", ""))]
     expected.extend(str(value) for value in data.get("options", []) if value)
     if data.get("body"):
-        expected.extend(_wrapped_lines(str(data["body"]), 24))
+        limit = 20 if record.scene_type in {"question", "explanation"} else 24
+        expected.extend(_wrapped_lines(str(data["body"]), limit))
     for value in expected:
         if value and escape(value) not in source:
             errors.append(f"Required rendered text is missing: {value}")
