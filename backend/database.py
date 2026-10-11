@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import DateTime, Integer, String, Text, create_engine, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -85,6 +85,27 @@ class GeneratedScene(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class GeneratedVideo(Base):
+    """Rendered local MP4 metadata for an accepted Short draft."""
+
+    __tablename__ = "generated_videos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    draft_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    render_status: Mapped[str] = mapped_column(String(24), default="pending")
+    video_path: Mapped[str] = mapped_column(Text, default="")
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    validation_status: Mapped[str] = mapped_column(String(24), default="pending")
+    timeline: Mapped[list[object]] = mapped_column(JSONB, default=list)
+    audio_expected: Mapped[bool] = mapped_column(Boolean, default=False)
+    audio_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    rendered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class AssistantConversation(Base):

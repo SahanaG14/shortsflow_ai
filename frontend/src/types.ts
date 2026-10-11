@@ -70,4 +70,19 @@ export type GeneratedScene = {
   render_data: Record<string, unknown>
 }
 
+export type RenderedVideo = {
+  id: number
+  draft_id: number
+  render_status: string
+  video_path: string
+  duration_seconds: number | null
+  width: number | null
+  height: number | null
+  file_size_bytes: number | null
+  validation_status: string
+  timeline: Array<{ scene_id: string; scene_number: number; scene_type: string; duration_seconds: number }>
+  audio_expected: boolean
+  audio_note: string
+}
+
 export type AppRoute = '/' | '/home' | '/chat' | '/images' | '/video' | '/uploads' | '/profile'

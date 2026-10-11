@@ -26,3 +26,4 @@ backend/.oauth_session_secret
 backend/.oauth_state.json
 backend/shortsflow.db
 backend/generated-assets/
+backend/generated-videos/

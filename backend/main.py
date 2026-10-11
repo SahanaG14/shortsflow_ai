@@ -28,6 +28,7 @@ from videos_db import list_videos, upsert_videos, video_count
 from duplicate_detection import check_duplicate
 from content_generation import generate_short_draft, list_generated_drafts
 from image_generation import ASSET_DIRECTORY, generate_scenes, list_scenes, regenerate_scene, validate_scenes
+from video_rendering import VIDEO_DIRECTORY, VideoRenderError, get_video, render_video, validate_video
 from ai_provider import AIProviderError
 from assistant_service import chat as assistant_chat, clear_history as clear_assistant_history, get_history as get_assistant_history
 from chat_preferences import (
@@ -67,6 +68,8 @@ def load_session_secret() -> str:
 app = FastAPI()
 ASSET_DIRECTORY.mkdir(parents=True, exist_ok=True)
 app.mount("/generated-assets", StaticFiles(directory=ASSET_DIRECTORY), name="generated-assets")
+VIDEO_DIRECTORY.mkdir(parents=True, exist_ok=True)
+app.mount("/generated-videos", StaticFiles(directory=VIDEO_DIRECTORY), name="generated-videos")
 LOGGER = logging.getLogger(__name__)
 SESSION_SECRET = load_session_secret().encode("utf-8")
 app.add_middleware(
@@ -108,6 +111,10 @@ class AssistantChatRequest(BaseModel):
 
 
 class SceneGenerationRequest(BaseModel):
+    draft_id: int = Field(gt=0)
+
+
+class VideoRenderRequest(BaseModel):
     draft_id: int = Field(gt=0)
 
 @app.get("/")
@@ -284,6 +291,37 @@ def regenerate_draft_scene(draft_id: int, scene_id: str):
         return {"scene": regenerate_scene(draft_id, scene_id)}
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/video-rendering/render")
+def render_short_video(request: VideoRenderRequest):
+    """Assemble validated scenes into a local 9:16 MP4 using FFmpeg."""
+    try:
+        return {"video": render_video(request.draft_id)}
+    except VideoRenderError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/video-rendering/{draft_id}")
+def rendered_short_video(draft_id: int):
+    return {"draft_id": draft_id, "video": get_video(draft_id), "scenes": list_scenes(draft_id)}
+
+
+@app.post("/api/video-rendering/{draft_id}/validate")
+def validate_rendered_short_video(draft_id: int):
+    try:
+        return validate_video(draft_id)
+    except VideoRenderError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/video-rendering/{draft_id}/rerender")
+def rerender_short_video(draft_id: int):
+    """Rebuild the MP4 only; existing validated images are retained."""
+    try:
+        return {"video": render_video(draft_id)}
+    except VideoRenderError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/api/chat/messages")
