@@ -1,4 +1,4 @@
-"""Validated metadata, approval, scheduling and idempotent private uploads."""
+"""Validated metadata, approval, scheduling and idempotent YouTube uploads."""
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -7,7 +7,7 @@ from chat_preferences import get_preferences
 from content_generation import list_generated_drafts
 from database import GeneratedVideo, UploadRecord, session_scope
 from video_rendering import VIDEO_DIRECTORY, validate_video
-from youtube_oauth import upload_private_video
+from youtube_oauth import upload_video
 
 def _draft(draft_id): return next((item for item in list_generated_drafts() if item['id'] == draft_id), None)
 def _metadata(draft, prefs):
@@ -34,7 +34,8 @@ def prepare_upload(draft_id):
         if existing:return _dict(existing)
         prefs=get_preferences(); draft=_draft(draft_id); data=_metadata(draft,prefs)
         occupied=set(s.scalars(select(UploadRecord.scheduled_at).where(UploadRecord.scheduled_at.is_not(None))).all())
-        record=UploadRecord(video_render_id=video.id,draft_id=draft_id,privacy_status='private',upload_state='ready' if prefs.get('manual_approval_enabled', True) else 'scheduled',scheduled_at=_slot(prefs,occupied),**data); s.add(record); s.flush(); return _dict(record)
+        scheduled_at = _slot(prefs, occupied) if prefs.get('upload_mode', 'schedule') == 'schedule' else None
+        record=UploadRecord(video_render_id=video.id,draft_id=draft_id,privacy_status=str(prefs.get('youtube_visibility', 'private')),upload_state='ready' if prefs.get('manual_approval_enabled', True) else ('scheduled' if scheduled_at else 'ready'),scheduled_at=scheduled_at,**data); s.add(record); s.flush(); return _dict(record)
 def list_uploads():
     with session_scope() as s:return [_dict(x) for x in s.scalars(select(UploadRecord).order_by(UploadRecord.id.desc())).all()]
 def upload(record_id, client_secret, token_file):
@@ -46,7 +47,8 @@ def upload(record_id, client_secret, token_file):
         video=s.get(GeneratedVideo,record.video_render_id); path=VIDEO_DIRECTORY / video.video_path.removeprefix('/generated-videos/')
         record.attempt_count += 1
         try:
-            record.youtube_video_id=upload_private_video(client_secret,token_file,path,record.title,record.description,record.hashtags); record.upload_state='published'; record.last_error=''
+            prefs=get_preferences()
+            record.youtube_video_id=upload_video(client_secret,token_file,path,record.title,record.description,record.hashtags,privacy_status=record.privacy_status,made_for_kids=bool(prefs.get('made_for_kids', False))); record.upload_state='published'; record.last_error=''
         except Exception as error:
             record.upload_state='failed'; record.last_error=str(error); raise
         finally: s.flush()

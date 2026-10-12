@@ -27,6 +27,7 @@ PREFERENCE_FIELDS = (
     "duplicate_prevention_enabled",
     "generate_title_enabled", "generate_description_enabled", "generate_hashtags_enabled",
     "manual_approval_enabled", "auto_upload_enabled", "upload_schedule_times", "timezone",
+    "youtube_visibility", "upload_mode", "made_for_kids",
 )
 
 
