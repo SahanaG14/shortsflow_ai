@@ -80,7 +80,7 @@ export type RenderedVideo = {
   height: number | null
   file_size_bytes: number | null
   validation_status: string
-  timeline: Array<{ scene_id: string; scene_number: number; scene_type: string; duration_seconds: number; countdown_value?: number }>
+  timeline: Array<{ scene_id: string; scene_number: number; scene_type: string; duration_seconds: number; countdown_value?: number; narration_text?: string; speech_duration_seconds?: number; visual_start_seconds?: number; visual_end_seconds?: number }>
   audio_expected: boolean
   audio_note: string
   voiceover_enabled: boolean
