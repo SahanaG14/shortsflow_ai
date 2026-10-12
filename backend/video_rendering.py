@@ -99,19 +99,29 @@ def _target_duration(settings: dict[str, object]) -> float:
     return float(value) if isinstance(value, int | float) and value > 0 else 59.0
 
 
-def _timeline(scenes: list[GeneratedScene], target: float) -> list[dict[str, object]]:
+def _timeline(scenes: list[GeneratedScene], target: float, narration: dict[str, dict[str, object]]) -> list[dict[str, object]]:
     timer = next((scene for scene in scenes if scene.scene_type == "thinking"), None)
     countdown_seconds = min(float(len(COUNTDOWN_VALUES)), target * 0.45) if timer else 0.0
     non_timer = [scene for scene in scenes if scene is not timer]
-    each = max(0.25, (target - countdown_seconds) / max(len(non_timer), 1))
+    required = sum(float(narration.get(scene.scene_id, {}).get("speech_duration_seconds", 0)) + 0.35 for scene in non_timer)
+    if required + countdown_seconds > target:
+        raise VideoRenderError("Scene narration exceeds the configured video duration. Shorten the draft before rendering.")
+    extra = (target - countdown_seconds - required) / max(len(non_timer), 1)
     timeline: list[dict[str, object]] = []
+    cursor = 0.0
     for scene in scenes:
         if scene is timer:
             for offset, value in enumerate(COUNTDOWN_VALUES):
-                timeline.append({"scene_id": f"countdown-{value}", "scene_number": scene.scene_number + offset / 10, "scene_type": "countdown", "countdown_value": value, "duration_seconds": 1.0, "source_scene_id": scene.scene_id})
+                timeline.append({"scene_id": f"countdown-{value}", "scene_number": scene.scene_number + offset / 10, "scene_type": "countdown", "countdown_value": value, "duration_seconds": 1.0, "source_scene_id": scene.scene_id, "visual_start_seconds": round(cursor, 3), "visual_end_seconds": round(cursor + 1, 3), "narration_text": "", "audio_path": "", "speech_duration_seconds": 0.0})
+                cursor += 1
         else:
-            timeline.append({"scene_id": scene.scene_id, "scene_number": scene.scene_number, "scene_type": scene.scene_type, "duration_seconds": round(each, 3)})
+            segment = narration.get(scene.scene_id, {})
+            speech = float(segment.get("speech_duration_seconds", 0))
+            duration = speech + 0.35 + extra
+            timeline.append({"scene_id": scene.scene_id, "scene_number": scene.scene_number, "scene_type": scene.scene_type, "duration_seconds": round(duration, 3), "visual_start_seconds": round(cursor, 3), "visual_end_seconds": round(cursor + duration, 3), "narration_text": str(segment.get("narration_text", "")), "audio_path": str(segment.get("audio_path", "")), "speech_duration_seconds": round(speech, 3), "narration_start_seconds": round(cursor, 3) if speech else None, "narration_end_seconds": round(cursor + speech, 3) if speech else None})
+            cursor += duration
     timeline[-1]["duration_seconds"] = round(target - sum(float(item["duration_seconds"]) for item in timeline[:-1]), 3)
+    timeline[-1]["visual_end_seconds"] = round(target, 3)
     return timeline
 
 
@@ -131,13 +141,32 @@ def _probe(path: Path) -> dict[str, object]:
 def _audio_duration(path: Path) -> float: return float(_probe(path).get("format", {}).get("duration", 0))
 
 
-def _narration(draft: GeneratedDraft) -> str:
-    content = dict(draft.content); parts = [str(content.get("hook", "")), str(content.get("question", ""))]
-    options = content.get("options", [])
-    if isinstance(options, list) and options: parts.append("Your options are " + ", ".join(str(value) for value in options) + ".")
-    parts.append("The answer is " + str(content.get("correct_answer", "")) + ".")
-    if content.get("explanation"): parts.append(str(content["explanation"]))
-    return " ".join(part.strip() for part in parts if part and part.strip())
+def _narration_for_scene(scene: GeneratedScene) -> str:
+    data = dict(scene.render_data)
+    if scene.scene_type == "options":
+        options = [str(value) for value in data.get("options", [])]
+        return "Your options are " + ", ".join(options) + "." if options else ""
+    if scene.scene_type == "answer":
+        return "The answer is " + str(data.get("body", "")).strip() + "."
+    return str(data.get("body", "")).strip()
+
+
+def _synthesize_scene_audio(scenes: list[GeneratedScene], draft_id: int, render_id: str, gender: str) -> tuple[dict[str, dict[str, object]], str, str]:
+    provider, voice = EdgeTTSProvider(), VOICE_IDS[gender]
+    segments: dict[str, dict[str, object]] = {}
+    for scene in scenes:
+        if scene.scene_type == "thinking":
+            continue
+        text = _narration_for_scene(scene)
+        if not text:
+            continue
+        path = AUDIO_DIRECTORY / f"draft-{draft_id}" / render_id / f"{scene.scene_number:02d}-{scene.scene_type}.mp3"
+        try:
+            metadata = provider.synthesize(text, gender, path)
+        except Exception as error:
+            raise VideoRenderError("Voiceover synthesis failed. Check edge-tts connectivity and try again.") from error
+        segments[scene.scene_id] = {"scene_id": scene.scene_id, "scene_type": scene.scene_type, "narration_text": text, "audio_path": metadata["path"], "speech_duration_seconds": _audio_duration(path)}
+    return segments, "edge-tts", voice
 
 
 def _video_dict(record: GeneratedVideo) -> dict[str, object]:
@@ -152,7 +181,13 @@ def render_video(draft_id: int) -> dict[str, object]:
     if not validate_scenes(draft_id)["valid"]: raise VideoRenderError("Scene validation failed. Regenerate only the failed scene before rendering video.")
     scenes = _scenes(draft_id)
     if not scenes: raise VideoRenderError("No validated scenes exist for this draft.")
-    settings = get_preferences(); target = _target_duration(settings); timeline = _timeline(scenes, target); render_id = uuid4().hex
+    settings = get_preferences(); target = _target_duration(settings); render_id = uuid4().hex
+    voiceover_enabled = bool(settings.get("voiceover_enabled", False)); gender = str(settings.get("voice_gender", "male")).casefold()
+    if gender not in VOICE_IDS: gender = "male"
+    narration: dict[str, dict[str, object]] = {}; provider = voice = ""
+    if voiceover_enabled:
+        narration, provider, voice = _synthesize_scene_audio(scenes, draft_id, render_id, gender)
+    timeline = _timeline(scenes, target, narration)
     work_dir = VIDEO_DIRECTORY / f"draft-{draft_id}" / render_id; work_dir.mkdir(parents=True, exist_ok=True)
     by_id = {scene.scene_id: scene for scene in scenes}; timer = next((scene for scene in scenes if scene.scene_type == "thinking"), None); segment_paths: list[Path] = []
     for index, item in enumerate(timeline, start=1):
@@ -162,25 +197,24 @@ def render_video(draft_id: int) -> dict[str, object]:
             copy = COUNTDOWN_DIRECTORY / f"draft-{draft_id}" / render_id / image_path.name; copy.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(image_path, copy)
         else: _rasterize_scene(by_id[str(item["scene_id"])], image_path)
         duration = float(item["duration_seconds"]); fade = min(0.2, duration / 4)
-        _run([_ffmpeg(), "-y", "-loop", "1", "-framerate", "24", "-t", f"{duration:.3f}", "-i", str(image_path), "-vf", f"fade=t=in:st=0:d={fade:.3f},fade=t=out:st={max(0, duration-fade):.3f}:d={fade:.3f},format=yuv420p", "-r", "24", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "25", str(segment)])
+        command = [_ffmpeg(), "-y", "-loop", "1", "-framerate", "24", "-t", f"{duration:.3f}", "-i", str(image_path)]
+        if voiceover_enabled:
+            audio_path = str(item.get("audio_path", ""))
+            if audio_path:
+                command.extend(["-i", audio_path, "-filter_complex", f"[1:a]apad=pad_dur={duration}[a]", "-map", "0:v:0", "-map", "[a]"])
+            else:
+                command.extend(["-f", "lavfi", "-t", f"{duration:.3f}", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-map", "0:v:0", "-map", "1:a:0"])
+        command.extend(["-vf", f"fade=t=in:st=0:d={fade:.3f},fade=t=out:st={max(0, duration-fade):.3f}:d={fade:.3f},format=yuv420p", "-r", "24", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "25"])
+        if voiceover_enabled:
+            command.extend(["-c:a", "aac"])
+        command.append(str(segment)); _run(command)
         segment_paths.append(segment)
     manifest = work_dir / "timeline.txt"; manifest.write_text("".join(f"file '{path.as_posix()}'\n" for path in segment_paths), encoding="utf-8")
-    voiceover_enabled = bool(settings.get("voiceover_enabled", False)); gender = str(settings.get("voice_gender", "male")).casefold()
-    if gender not in VOICE_IDS: gender = "male"
-    audio_file: Path | None = None; audio_duration: float | None = None; provider = voice = ""
-    if voiceover_enabled:
-        with session_scope() as session: draft = session.get(GeneratedDraft, draft_id)
-        if not draft: raise VideoRenderError("Accepted draft was not found.")
-        audio_file = AUDIO_DIRECTORY / f"draft-{draft_id}" / render_id / "voiceover.mp3"
-        try:
-            metadata = EdgeTTSProvider().synthesize(_narration(draft), gender, audio_file); provider, voice, audio_duration = metadata["provider"], metadata["voice"], _audio_duration(audio_file)
-        except Exception as error: raise VideoRenderError("Voiceover synthesis failed. Check edge-tts connectivity and try again.") from error
-        if audio_duration > target: raise VideoRenderError("Voiceover narration exceeds the configured video duration. Shorten the draft before rendering.")
+    audio_duration = sum(float(item.get("speech_duration_seconds", 0)) for item in timeline)
     music_requested, music = bool(settings.get("background_music_enabled", False)), _background_music(); output = work_dir / "short.mp4"; command = [_ffmpeg(), "-y", "-f", "concat", "-safe", "0", "-i", str(manifest)]
-    if audio_file:
-        command.extend(["-i", str(audio_file)])
-        if music: command.extend(["-stream_loop", "-1", "-i", str(music), "-filter_complex", f"[1:a]apad=pad_dur={target}[voice];[2:a]volume=0.16,apad=pad_dur={target}[music];[voice][music]amix=inputs=2:duration=first[a]", "-map", "0:v:0", "-map", "[a]"])
-        else: command.extend(["-filter_complex", f"[1:a]apad=pad_dur={target}[a]", "-map", "0:v:0", "-map", "[a]"])
+    if voiceover_enabled:
+        if music: command.extend(["-stream_loop", "-1", "-i", str(music), "-filter_complex", f"[0:a]apad=pad_dur={target}[voice];[1:a]volume=0.16,apad=pad_dur={target}[music];[voice][music]amix=inputs=2:duration=first[a]", "-map", "0:v:0", "-map", "[a]"])
+        else: command.extend(["-map", "0:v:0", "-map", "0:a:0"])
     elif music: command.extend(["-stream_loop", "-1", "-i", str(music), "-map", "0:v:0", "-map", "1:a:0"])
     command.extend(["-t", f"{target:.3f}", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "25", "-c:a", "aac", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output)])
     _run(command)
@@ -192,9 +226,9 @@ def render_video(draft_id: int) -> dict[str, object]:
     with session_scope() as session:
         record = session.scalar(select(GeneratedVideo).where(GeneratedVideo.draft_id == draft_id)) or GeneratedVideo(draft_id=draft_id); session.add(record)
         record.render_status, record.video_path = "rendered", public_path; record.duration_seconds, record.width, record.height, record.file_size_bytes = duration, int(video_stream.get("width", 0)), int(video_stream.get("height", 0)), output.stat().st_size
-        record.timeline, record.audio_expected, record.audio_note, record.validation_status = timeline, bool(audio_file or music), " ".join(note for note in notes if note), "pending"
+        record.timeline, record.audio_expected, record.audio_note, record.validation_status = timeline, bool(voiceover_enabled or music), " ".join(note for note in notes if note), "pending"
         record.voiceover_enabled, record.voice_provider, record.voice_gender, record.voice_id = voiceover_enabled, provider, gender if voiceover_enabled else "", voice
-        record.audio_path, record.audio_duration_seconds, record.countdown_length = str(audio_file) if audio_file else "", audio_duration, len(COUNTDOWN_VALUES) if timer else 0
+        record.audio_path, record.audio_duration_seconds, record.countdown_length = str(AUDIO_DIRECTORY / f"draft-{draft_id}" / render_id) if voiceover_enabled else "", audio_duration if voiceover_enabled else None, len(COUNTDOWN_VALUES) if timer else 0
         session.flush(); return _video_dict(record)
 
 
@@ -220,8 +254,17 @@ def validate_video(draft_id: int) -> dict[str, object]:
                 if countdown and [item.get("countdown_value") for item in countdown] != list(COUNTDOWN_VALUES): errors.append("Countdown sequence is invalid.")
                 if countdown and any(abs(float(item.get("duration_seconds", 0)) - 1) > .1 for item in countdown): errors.append("Countdown frames must be approximately one second each.")
                 if record.voiceover_enabled:
-                    if not record.audio_path or not Path(record.audio_path).is_file(): errors.append("Generated voiceover audio file is missing.")
+                    if not record.audio_path or not Path(record.audio_path).is_dir(): errors.append("Generated voiceover audio directory is missing.")
                     if record.voice_provider != "edge-tts" or record.voice_id != VOICE_IDS.get(record.voice_gender): errors.append("Voice metadata does not match saved Settings.")
+                    expected = {scene.scene_id: _narration_for_scene(scene) for scene in _scenes(draft_id) if scene.scene_type != "thinking"}
+                    narrated = [item for item in record.timeline if item.get("narration_text")]
+                    if len(narrated) != len(expected): errors.append("Narration is missing one or more required scenes.")
+                    previous_end = 0.0
+                    for item in narrated:
+                        scene_id = str(item.get("scene_id")); speech = float(item.get("speech_duration_seconds", 0)); start = float(item.get("narration_start_seconds", -1)); end = float(item.get("narration_end_seconds", -1)); visual_start = float(item.get("visual_start_seconds", -1)); visual_end = float(item.get("visual_end_seconds", -1))
+                        if item.get("narration_text") != expected.get(scene_id) or not Path(str(item.get("audio_path", ""))).is_file(): errors.append("Narration metadata does not match its scene.")
+                        if start != visual_start or end < start + speech - .05 or end > visual_end + .05 or start < previous_end - .01: errors.append("Narration timing is not aligned with scene boundaries.")
+                        previous_end = end
                 record.duration_seconds, record.width, record.height = duration, int(video.get("width", 0)) if video else 0, int(video.get("height", 0)) if video else 0
             except (VideoRenderError, ValueError, json.JSONDecodeError) as error: errors.append(str(error))
         record.validation_status = "valid" if not errors else "failed"; session.flush()
