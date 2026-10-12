@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { AppRoute } from '../types'
 
 const navigation: Array<{ route: AppRoute; label: string; mark: string }> = [
@@ -17,22 +17,29 @@ type AppShellProps = {
 }
 
 export function AppShell({ activeRoute, onNavigate, children }: AppShellProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const isActiveRoute = (route: AppRoute) => activeRoute === route || (activeRoute === '/' && route === '/home')
+  const navigate = (route: AppRoute) => {
+    onNavigate(route)
+    setMobileMenuOpen(false)
+  }
+
   return (
     <div className="app-frame">
       <aside className="sidebar" aria-label="Main navigation">
-        <button className="brand" type="button" onClick={() => onNavigate('/home')}>
+        <button className="brand" type="button" onClick={() => navigate('/home')}>
           <span className="brand-mark">S</span>
           <span><strong>ShortsFlow</strong><small>AI studio</small></span>
         </button>
         <nav className="nav-list">
           {navigation.map((item) => {
-            const isActive = activeRoute === item.route || (activeRoute === '/' && item.route === '/home')
+            const isActive = isActiveRoute(item.route)
             return <button
               className={`nav-item ${isActive ? 'active' : ''}`}
               aria-current={isActive ? 'page' : undefined}
               type="button"
               key={item.route}
-              onClick={() => onNavigate(item.route)}
+              onClick={() => navigate(item.route)}
             >
               <span className="nav-mark">{item.mark}</span>{item.label}
             </button>
@@ -40,6 +47,41 @@ export function AppShell({ activeRoute, onNavigate, children }: AppShellProps) {
         </nav>
         <div className="sidebar-footer"><span className="status-dot" /> Workspace ready</div>
       </aside>
+      <header className="mobile-header">
+        <button className="mobile-brand" type="button" onClick={() => navigate('/home')}>
+          <span className="brand-mark">S</span>
+          <span>ShortsFlow <small>AI studio</small></span>
+        </button>
+        <button
+          className="mobile-menu-button"
+          type="button"
+          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-controls="mobile-navigation"
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((isOpen) => !isOpen)}
+        >
+          <span aria-hidden="true">{mobileMenuOpen ? '×' : '☰'}</span>
+        </button>
+      </header>
+      {mobileMenuOpen && <button className="mobile-nav-backdrop" type="button" aria-label="Close navigation menu" onClick={() => setMobileMenuOpen(false)} />}
+      {mobileMenuOpen && (
+        <nav id="mobile-navigation" className="mobile-nav open" aria-label="Mobile navigation">
+          {navigation.map((item) => {
+            const isActive = isActiveRoute(item.route)
+            return (
+              <button
+                className={`mobile-nav-item ${isActive ? 'active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
+                type="button"
+                key={item.route}
+                onClick={() => navigate(item.route)}
+              >
+                <span className="nav-mark">{item.mark}</span>{item.label}
+              </button>
+            )
+          })}
+        </nav>
+      )}
       <main className="main-content">{children}</main>
     </div>
   )
