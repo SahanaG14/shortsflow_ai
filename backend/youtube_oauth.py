@@ -215,14 +215,16 @@ def get_uploaded_videos(client_secrets_file: Path, token_file: Path) -> list[dic
         raise YouTubeSyncError("YouTube uploads could not be fetched.") from error
 
 
-def upload_private_video(client_secrets_file: Path, token_file: Path, video_file: Path, title: str, description: str, tags: list[str]) -> str:
-    """Upload a single local MP4 as private; public publishing is intentionally unsupported."""
+def upload_video(client_secrets_file: Path, token_file: Path, video_file: Path, title: str, description: str, tags: list[str], *, privacy_status: str = "private", made_for_kids: bool = False) -> str:
+    """Upload a validated local MP4 using its Settings-owned publishing values."""
+    if privacy_status not in {"private", "unlisted", "public"}:
+        raise YouTubeUploadError("Unsupported YouTube visibility setting.")
     if not video_file.is_file():
         raise YouTubeUploadError("Validated video file is missing.")
     credentials = _load_credentials(client_secrets_file, token_file, require_upload_scope=True)
     try:
         youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
-        request = youtube.videos().insert(part="snippet,status", body={"snippet": {"title": title, "description": description, "tags": tags}, "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}}, media_body=MediaFileUpload(str(video_file), mimetype="video/mp4", resumable=True))
+        request = youtube.videos().insert(part="snippet,status", body={"snippet": {"title": title, "description": description, "tags": tags}, "status": {"privacyStatus": privacy_status, "selfDeclaredMadeForKids": made_for_kids}}, media_body=MediaFileUpload(str(video_file), mimetype="video/mp4", resumable=True))
         response = request.execute()
         video_id = response.get("id")
         if not video_id: raise YouTubeUploadError("YouTube did not return an uploaded video ID.")
